@@ -9,8 +9,10 @@ from .inspect import inspect_path
 from .render import render_human, render_json
 from .rewrap import (
     build_ownership_transition_event,
+    build_rewrap_prerequisite_set,
     emit_transition_bundle,
     render_authority_view,
+    render_rewrap_prerequisite_checklist,
     render_transition_json,
     render_transition_preview,
     validate_transition_inputs,
@@ -141,6 +143,22 @@ def _cmd_verify(args: argparse.Namespace) -> int:
 
 
 def _cmd_rewrap(args: argparse.Namespace) -> int:
+    prereqs = build_rewrap_prerequisite_set(
+        actor_id=args.actor,
+        authority_mode=args.authority_mode,
+        transition_type=args.transition_type,
+        status=args.status,
+        effective_assignee=args.effective_assignee,
+        reason=args.reason,
+        handoff_target=args.handoff_target,
+        freeze_reason_code=args.freeze_reason_code,
+        emit_bundle=args.emit_bundle,
+        identity_dir=args.identity_dir,
+    )
+    if not prereqs.passed():
+        print(render_rewrap_prerequisite_checklist(prereqs), file=sys.stderr)
+        return 2
+
     errors = validate_transition_inputs(
         actor_id=args.actor,
         authority_mode=args.authority_mode,

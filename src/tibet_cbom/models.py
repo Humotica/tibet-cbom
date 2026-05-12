@@ -39,6 +39,7 @@ class CBOMDocument:
     continuity_id: str | None = None
     object_id: str | None = None
     current_action_id: str | None = None
+    current_parent_action_id: str | None = None
     current_actor_id: str | None = None
     current_transition_type: str | None = None
     current_status: str | None = None
@@ -62,6 +63,7 @@ class CBOMDocument:
             "continuity_id": self.continuity_id,
             "object_id": self.object_id,
             "current_action_id": self.current_action_id,
+            "current_parent_action_id": self.current_parent_action_id,
             "current_actor_id": self.current_actor_id,
             "current_transition_type": self.current_transition_type,
             "current_status": self.current_status,

@@ -95,7 +95,7 @@ def inspect_path(path_str: str) -> CBOMDocument:
         facts.append(MaterialFact("manifest_present", "false"))
     if isinstance(transition_event, dict):
         facts.append(MaterialFact("ownership_transition_present", "true"))
-        for key in ("actor_id", "transition_type", "status", "effective_assignee"):
+        for key in ("actor_id", "parent_action_id", "transition_type", "status", "effective_assignee"):
             if transition_event.get(key):
                 facts.append(MaterialFact(f"transition_{key}", str(transition_event.get(key))))
     else:
@@ -153,6 +153,10 @@ def inspect_path(path_str: str) -> CBOMDocument:
                     f"transition_type={transition_event.get('transition_type', '<none>')}",
                     f"status={transition_event.get('status', '<none>')}",
                     f"effective_assignee={transition_event.get('effective_assignee', '<none>')}",
+                    *(
+                        [f"parent_action_id={transition_event.get('parent_action_id')}"]
+                        if transition_event.get("parent_action_id") else []
+                    ),
                     *(
                         [f"handoff_target={transition_event.get('handoff_target')}"]
                         if transition_event.get("handoff_target") else []
@@ -230,6 +234,10 @@ def inspect_path(path_str: str) -> CBOMDocument:
         current_action_id=(
             str(transition_event.get("action_id")) if isinstance(transition_event, dict) and
             transition_event.get("action_id") is not None else None
+        ),
+        current_parent_action_id=(
+            str(transition_event.get("parent_action_id")) if isinstance(transition_event, dict) and
+            transition_event.get("parent_action_id") is not None else None
         ),
         current_actor_id=(
             str(transition_event.get("actor_id")) if isinstance(transition_event, dict) and
