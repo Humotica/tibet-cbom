@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 import time
+import sys
 
 from .inspect import inspect_path
 from .models import CBOMDocument
@@ -15,6 +16,146 @@ def _utc_now() -> str:
 
 def _mint_action_id() -> str:
     return "act_" + datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+
+
+def _load_tibet_pol_prereq():
+    local_src = "/srv/jtel-stack/packages/tibet-pol/src"
+    if local_src not in sys.path:
+        sys.path.insert(0, local_src)
+    from tibet_pol.prereq import Prerequisite, PrerequisiteSet, render_checklist  # type: ignore
+
+    return Prerequisite, PrerequisiteSet, render_checklist
+
+
+def _identity_dir_aint(identity_dir: str | None) -> str | None:
+    if not identity_dir:
+        return None
+    identity_json = Path(identity_dir) / "identity.json"
+    if not identity_json.exists():
+        return None
+    try:
+        payload = json.loads(identity_json.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    aint = payload.get("aint")
+    return str(aint) if aint else None
+
+
+def build_rewrap_prerequisite_set(
+    *,
+    actor_id: str,
+    authority_mode: str,
+    transition_type: str,
+    status: str,
+    effective_assignee: str,
+    reason: str,
+    handoff_target: str | None = None,
+    freeze_reason_code: str | None = None,
+    emit_bundle: str | None = None,
+    identity_dir: str | None = None,
+):
+    Prerequisite, PrerequisiteSet, _ = _load_tibet_pol_prereq()
+
+    why_map = {
+        "handoff": "handoff is a 3-party shift (sender -> carrier -> receiver)",
+        "takeover": "takeover should move authority into a valid admin-held lane",
+        "freeze": "freeze should create an explicit hold state with audit reason",
+    }
+    allowed_status = {
+        "freeze": ["frozen"],
+        "takeover": ["admin-held", "frozen"],
+        "handoff": ["active", "handoff-pending"],
+    }.get(transition_type)
+    identity_aint = _identity_dir_aint(identity_dir)
+
+    checks = [
+        Prerequisite("--actor", required=True, provided=actor_id),
+        Prerequisite("--authority-mode", required=True, provided=authority_mode),
+        Prerequisite("--transition-type", required=True, provided=transition_type),
+        Prerequisite(
+            "--status",
+            required=True,
+            provided=status,
+            allowed=allowed_status,
+            hint=(
+                f"choose one of: {', '.join(allowed_status)}"
+                if allowed_status else ""
+            ),
+        ),
+        Prerequisite("--effective-assignee", required=True, provided=effective_assignee),
+        Prerequisite("--reason", required=True, provided=reason),
+    ]
+
+    if transition_type == "handoff":
+        checks.append(
+            Prerequisite(
+                "--handoff-target",
+                required=True,
+                provided=handoff_target,
+                hint="add --handoff-target jis:humotica:agent.ai",
+            )
+        )
+    if transition_type == "freeze":
+        checks.append(
+            Prerequisite(
+                "--freeze-reason-code",
+                required=True,
+                provided=freeze_reason_code,
+                hint="add --freeze-reason-code human-review",
+            )
+        )
+    if authority_mode == "admin":
+        checks.append(
+            Prerequisite(
+                "admin actor id",
+                required=True,
+                provided=actor_id,
+                valid=".admin" in actor_id,
+                hint="use an admin actor id such as jis:humotica:jasper.admin",
+            )
+        )
+    if emit_bundle:
+        checks.append(
+            Prerequisite(
+                "--identity-dir",
+                required=True,
+                provided=identity_dir,
+                hint="add --identity-dir /path/to/admin-identity",
+            )
+        )
+        if identity_dir:
+            checks.append(
+                Prerequisite(
+                    "identity actor match",
+                    required=True,
+                    provided=identity_aint or "<missing aint>",
+                    valid=(identity_aint == actor_id),
+                    hint=(
+                        "align --actor with identity.json aint, or point --identity-dir "
+                        "at the matching signer"
+                    ),
+                )
+            )
+
+    return PrerequisiteSet(
+        operation=f"tibet-cbom rewrap ({transition_type})",
+        why=why_map.get(transition_type, "rewrap should produce a causally valid governance step"),
+        checks=checks,
+        fix_examples=[
+            "tibet-cbom rewrap ... --handoff-target jis:humotica:agent.ai"
+            if transition_type == "handoff" else
+            "tibet-cbom rewrap ... --freeze-reason-code human-review"
+            if transition_type == "freeze" else
+            "tibet-cbom rewrap ... --status admin-held"
+            if transition_type == "takeover" else
+            "tibet-cbom rewrap ... --json"
+        ],
+    )
+
+
+def render_rewrap_prerequisite_checklist(prereqs) -> str:
+    _, _, render_checklist = _load_tibet_pol_prereq()
+    return render_checklist(prereqs)
 
 
 def validate_transition_inputs(

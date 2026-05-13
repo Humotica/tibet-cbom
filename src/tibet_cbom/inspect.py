@@ -6,6 +6,7 @@ from pathlib import Path
 from .manifest import (
     canonical_name_from_manifest,
     compare_surface_status,
+    extract_sam_receipt_payload,
     extract_transition_payload,
     inspect_manifest,
     verify_manifest,
@@ -34,6 +35,7 @@ def inspect_path(path_str: str) -> CBOMDocument:
     manifest_errors: list[str] = []
     transition_payload = None
     transition_event = None
+    sam_receipt_payload = None
 
     if sniff.intake_class in {IntakeClass.SEALED_TBZ, IntakeClass.SEALED_TBZ_NO_EXT}:
         manifest = inspect_manifest(path)
@@ -41,6 +43,7 @@ def inspect_path(path_str: str) -> CBOMDocument:
         if verified_manifest:
             manifest = verified_manifest
         transition_payload = extract_transition_payload(path)
+        sam_receipt_payload = extract_sam_receipt_payload(path)
         if isinstance(transition_payload, dict):
             candidate = transition_payload.get("ownership_transition")
             if isinstance(candidate, dict):
@@ -91,6 +94,12 @@ def inspect_path(path_str: str) -> CBOMDocument:
             facts.append(MaterialFact("receiver_aint", str(manifest.get("receiver_aint"))))
         if manifest.get("created_at"):
             facts.append(MaterialFact("manifest_created_at", str(manifest.get("created_at"))))
+        if manifest.get("payload_type") == "sam_gateway_receipt":
+            block_specs = manifest.get("blocks", [])
+            if isinstance(block_specs, list) and block_specs:
+                content_hash = block_specs[0].get("content_sha256")
+                if content_hash:
+                    facts.append(MaterialFact("receipt_content_sha256", str(content_hash)))
     else:
         facts.append(MaterialFact("manifest_present", "false"))
     if isinstance(transition_event, dict):
@@ -100,6 +109,21 @@ def inspect_path(path_str: str) -> CBOMDocument:
                 facts.append(MaterialFact(f"transition_{key}", str(transition_event.get(key))))
     else:
         facts.append(MaterialFact("ownership_transition_present", "false"))
+    if isinstance(sam_receipt_payload, dict):
+        facts.append(MaterialFact("sam_gateway_receipt_present", "true"))
+        for key in (
+            "sam_id",
+            "ephemeral_id",
+            "requested_action",
+            "executed_action",
+            "gateway_actor",
+            "policy_verdict",
+            "status",
+        ):
+            if sam_receipt_payload.get(key) is not None:
+                facts.append(MaterialFact(f"receipt_{key}", str(sam_receipt_payload.get(key))))
+    else:
+        facts.append(MaterialFact("sam_gateway_receipt_present", "false"))
 
     events = [
         SoMEvent(
@@ -162,6 +186,31 @@ def inspect_path(path_str: str) -> CBOMDocument:
                         if transition_event.get("handoff_target") else []
                     ),
                 ],
+            )
+        )
+    if isinstance(sam_receipt_payload, dict):
+        receipt_hash = None
+        if isinstance(manifest, dict):
+            block_specs = manifest.get("blocks", [])
+            if isinstance(block_specs, list) and block_specs:
+                receipt_hash = block_specs[0].get("content_sha256")
+        notes = [
+            f"sam_id={sam_receipt_payload.get('sam_id', '<none>')}",
+            f"requested_action={sam_receipt_payload.get('requested_action', '<none>')}",
+            f"executed_action={sam_receipt_payload.get('executed_action', '<none>')}",
+            f"policy_verdict={sam_receipt_payload.get('policy_verdict', '<none>')}",
+            f"ephemeral_id={sam_receipt_payload.get('ephemeral_id', '<none>')}",
+            f"receipt_status={sam_receipt_payload.get('status', '<none>')}",
+        ]
+        if receipt_hash:
+            notes.append(f"receipt_content_sha256={receipt_hash}")
+        events.append(
+            SoMEvent(
+                timestamp=str(sam_receipt_payload.get("executed_at") or now),
+                action="sam-executed",
+                actor=str(sam_receipt_payload.get("gateway_actor") or "unknown"),
+                action_id=str(sam_receipt_payload.get("sam_id") or "sam_receipt_unknown"),
+                notes=notes,
             )
         )
 

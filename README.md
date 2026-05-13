@@ -168,6 +168,15 @@ This keeps the distinction clear:
 - CBOM is the object summary
 - SoM is the walkable event chain inside or around that object
 
+Current known sealed payloads include:
+
+- ownership transitions
+- SAM gateway receipts
+
+So a sealed `sam_gateway_receipt` is no longer treated as an opaque
+payload; it lands as a first-class `sam-executed` event in the local
+SoM timeline.
+
 ## Likely next steps
 
 - extract canonical surface from real manifests

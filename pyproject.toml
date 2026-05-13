@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tibet-cbom"
-version = "0.1.1"
+version = "0.1.2"
 description = "Continuity bill of materials and State of Manifest inspector for sealed TIBET envelopes."
 readme = "README.md"
 license = {text = "MIT"}

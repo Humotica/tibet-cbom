@@ -82,15 +82,23 @@ def canonical_name_from_manifest(manifest: dict | None) -> str | None:
 
 
 def extract_transition_payload(bundle_path: Path) -> dict | None:
+    return extract_bundle_json_payload(bundle_path, "ownership-transition.json")
+
+
+def extract_bundle_json_payload(bundle_path: Path, block_name: str) -> dict | None:
     try:
         mod = _load_tibet_drop_bundle()
         with tempfile.TemporaryDirectory(prefix="tcbom-unpack-") as tmp:
             out = Path(tmp)
             mod.unpack_bundle(bundle_path, out)
-            candidate = out / "ownership-transition.json"
+            candidate = out / block_name
             if not candidate.exists():
                 return None
             payload = json.loads(candidate.read_text(encoding="utf-8"))
             return payload if isinstance(payload, dict) else None
     except Exception:
         return None
+
+
+def extract_sam_receipt_payload(bundle_path: Path) -> dict | None:
+    return extract_bundle_json_payload(bundle_path, "sam-response.json")
