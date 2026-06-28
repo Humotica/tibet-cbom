@@ -181,6 +181,173 @@ def build_verify_report(file_path: str, audit_path: str | None = None) -> dict:
                 summary="no parent authority step declared",
                 detail="root or first seeded authority step",
             )
+
+        # ----------------------------------------------------------------
+        # transition-authority check (introduced in tibet-cbom v0.2.0)
+        #
+        # Replaces the v0.1.x rewrap.py substring gate ('.admin' in
+        # actor_id) with chain-walk discipline per RS-2026-001 §6.5:
+        # authority is established by explicit cross-reference between
+        # TIBET tokens, not by string-pattern matching on actor_id.
+        #
+        # Three categories per transition_type:
+        #   self-issued  (freeze, release) — actor consistent across
+        #     parent_action_id link (same chain)
+        #   delegated    (handoff, takeover, supersede) — parent in
+        #     different chain (cross-reference); parent_actor != actor
+        #   chain-anchored (reclaim) — prior ownership token exists in
+        #     audit context for this actor
+        #
+        # Handoff is delegated, not self-issued. Per RS-2026-001 Richard
+        # Barron observation (21 May 2026): handoff is structurally a
+        # bilateral consent-bound transfer (TAT Rule 1). Sender's
+        # Transfer-Out Anchor and receiver's Transfer-In Anchor
+        # converge via parent_action_id cross-reference. Self-handoff
+        # (sender == receiver) is structurally rejected.
+        #
+        # Optional Ed25519 signature verification against AINS pubkey is
+        # planned for v0.3.0 when the transition payload carries
+        # signature bytes alongside the existing fields.
+        # ----------------------------------------------------------------
+        _TRANSITION_AUTHORITY = {
+            "freeze": "self-issued",
+            "release": "self-issued",
+            "handoff": "delegated",       # bilateral consent (TAT Rule 1)
+            "takeover": "delegated",
+            "supersede": "delegated",
+            "reclaim": "chain-anchored",
+        }
+        tx_type = transition.get("transition_type")
+        tx_actor = transition.get("actor_id")
+        category = _TRANSITION_AUTHORITY.get(tx_type, "unknown")
+
+        if category == "self-issued":
+            if parent_action_id:
+                parent_record = next(
+                    (
+                        r for r in raw_audit_records
+                        if r.get("action_id") == parent_action_id
+                    ),
+                    None,
+                )
+                if parent_record:
+                    parent_actor = (
+                        parent_record.get("actor_id")
+                        or parent_record.get("actor")
+                    )
+                    ok = (parent_actor == tx_actor)
+                    _check(
+                        checks,
+                        name="transition-authority",
+                        ok=ok,
+                        summary=(
+                            "self-issued transition: actor consistent across parent link"
+                            if ok else
+                            "self-issued transition: actor differs from parent — authority break"
+                        ),
+                        detail=(
+                            f"category=self-issued actor={tx_actor} "
+                            f"parent_actor={parent_actor}"
+                        ),
+                    )
+                else:
+                    _check(
+                        checks,
+                        name="transition-authority",
+                        ok=None,
+                        summary="self-issued: parent_action_id not in audit (cannot verify chain)",
+                        detail=(
+                            f"category=self-issued actor={tx_actor} "
+                            f"parent_action_id={parent_action_id}"
+                        ),
+                    )
+            else:
+                _check(
+                    checks,
+                    name="transition-authority",
+                    ok=None,
+                    summary="self-issued root event, no parent to verify",
+                    detail=f"category=self-issued actor={tx_actor}",
+                )
+        elif category == "delegated":
+            if parent_action_id:
+                parent_record = next(
+                    (
+                        r for r in raw_audit_records
+                        if r.get("action_id") == parent_action_id
+                    ),
+                    None,
+                )
+                if parent_record:
+                    parent_actor = (
+                        parent_record.get("actor_id")
+                        or parent_record.get("actor")
+                    )
+                    # delegated requires cross-chain reference:
+                    # parent_actor must be different identity than tx_actor
+                    ok = (
+                        parent_actor is not None
+                        and parent_actor != tx_actor
+                    )
+                    _check(
+                        checks,
+                        name="transition-authority",
+                        ok=ok,
+                        summary=(
+                            "delegated transition: cross-chain reference to delegating authority"
+                            if ok else
+                            "delegated transition lacks cross-chain reference (parent_actor == actor)"
+                        ),
+                        detail=(
+                            f"category=delegated actor={tx_actor} "
+                            f"delegating_actor={parent_actor}"
+                        ),
+                    )
+                else:
+                    _check(
+                        checks,
+                        name="transition-authority",
+                        ok=False,
+                        summary="delegated transition: parent (delegating authority) cannot be resolved",
+                        detail=(
+                            f"category=delegated actor={tx_actor} "
+                            f"parent_action_id={parent_action_id}"
+                        ),
+                    )
+            else:
+                _check(
+                    checks,
+                    name="transition-authority",
+                    ok=False,
+                    summary="delegated transition without parent_action_id (cross-chain ref missing)",
+                    detail=f"category=delegated actor={tx_actor}",
+                )
+        elif category == "chain-anchored":
+            # reclaim: walk audit backward, find prior token where this
+            # actor was active owner
+            prior_ownership = any(
+                (r.get("actor_id") or r.get("actor")) == tx_actor
+                for r in raw_audit_records
+            )
+            _check(
+                checks,
+                name="transition-authority",
+                ok=prior_ownership,
+                summary=(
+                    "chain-anchored reclaim: prior ownership token found in audit"
+                    if prior_ownership else
+                    "chain-anchored reclaim has no prior ownership in audit context"
+                ),
+                detail=f"category=chain-anchored actor={tx_actor}",
+            )
+        else:
+            _check(
+                checks,
+                name="transition-authority",
+                ok=False,
+                summary=f"unknown transition_type {tx_type!r}, cannot determine authority category",
+                detail="category=unknown",
+            )
     else:
         _check(
             checks,

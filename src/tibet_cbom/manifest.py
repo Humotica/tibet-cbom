@@ -7,15 +7,12 @@ from pathlib import Path
 
 
 def _load_tibet_drop_bundle():
-    local_src = "/srv/jtel-stack/sandbox/airdrop-cli/src"
-    if local_src not in sys.path:
-        sys.path.insert(0, local_src)
     try:
         from tibet_drop import bundle as mod  # type: ignore
         return mod
     except ImportError:
-        pass
-
+        from ._devpath import add_dev_src
+        add_dev_src()  # opt-in monorepo dev fallback; no hardcoded paths ship
     from tibet_drop import bundle as mod  # type: ignore
     return mod
 

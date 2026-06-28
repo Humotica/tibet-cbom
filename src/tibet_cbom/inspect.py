@@ -94,6 +94,12 @@ def inspect_path(path_str: str) -> CBOMDocument:
             facts.append(MaterialFact("receiver_aint", str(manifest.get("receiver_aint"))))
         if manifest.get("created_at"):
             facts.append(MaterialFact("manifest_created_at", str(manifest.get("created_at"))))
+        # SSM standard facts — surface = greeting, manifest = truth. Map any present
+        # keys so ssm_card() fills from real sealed evidence; fail-soft (a missing
+        # key is simply omitted, never synthesized from the surface).
+        for ssm_key in ("lamport_tick", "route_posture", "audit_mode", "seal_algo", "tza_id"):
+            if manifest.get(ssm_key) is not None:
+                facts.append(MaterialFact(ssm_key, str(manifest.get(ssm_key))))
         if manifest.get("payload_type") == "sam_gateway_receipt":
             block_specs = manifest.get("blocks", [])
             if isinstance(block_specs, list) and block_specs:

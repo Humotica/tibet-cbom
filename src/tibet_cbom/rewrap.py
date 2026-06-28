@@ -19,11 +19,13 @@ def _mint_action_id() -> str:
 
 
 def _load_tibet_pol_prereq():
-    local_src = "/srv/jtel-stack/packages/tibet-pol/src"
-    if local_src not in sys.path:
-        sys.path.insert(0, local_src)
+    try:
+        from tibet_pol.prereq import Prerequisite, PrerequisiteSet, render_checklist  # type: ignore
+        return Prerequisite, PrerequisiteSet, render_checklist
+    except ImportError:
+        from ._devpath import add_dev_src
+        add_dev_src()  # opt-in monorepo dev fallback; no hardcoded paths ship
     from tibet_pol.prereq import Prerequisite, PrerequisiteSet, render_checklist  # type: ignore
-
     return Prerequisite, PrerequisiteSet, render_checklist
 
 
@@ -104,16 +106,13 @@ def build_rewrap_prerequisite_set(
                 hint="add --freeze-reason-code human-review",
             )
         )
-    if authority_mode == "admin":
-        checks.append(
-            Prerequisite(
-                "admin actor id",
-                required=True,
-                provided=actor_id,
-                valid=".admin" in actor_id,
-                hint="use an admin actor id such as jis:humotica:jasper.admin",
-            )
-        )
+    # NOTE (tibet-cbom v0.2.0): the v0.1.x substring check
+    # (".admin" in actor_id) was removed. Authority verification now
+    # lives in verify.py's transition-authority check, which walks
+    # the chain per §6.5 (Lamport-anchored cross-reference discipline).
+    # The rewrap pre-write gate is intentionally absent: malicious
+    # actor_id values are caught at audit-time by chain discipline,
+    # not by string-pattern guesswork.
     if emit_bundle:
         checks.append(
             Prerequisite(
@@ -172,8 +171,9 @@ def validate_transition_inputs(
         errors.append("handoff requires --handoff-target")
     if transition_type == "freeze" and not freeze_reason_code:
         errors.append("freeze requires --freeze-reason-code")
-    if authority_mode == "admin" and ".admin" not in actor_id:
-        errors.append("authority-mode=admin expects an admin actor id")
+    # NOTE (v0.2.0): substring check ".admin" in actor_id removed.
+    # Authority enforcement is read-time via verify.py's
+    # transition-authority check, not write-time string match.
     if transition_type == "freeze" and status != "frozen":
         errors.append("freeze transition should produce status=frozen")
     if transition_type == "takeover" and status not in {"admin-held", "frozen"}:
@@ -315,12 +315,12 @@ def emit_transition_bundle(
     surface_profile: str = "admin",
     surface_priority: str = "normal",
 ) -> dict:
-    import sys
-    local_src = "/srv/jtel-stack/sandbox/airdrop-cli/src"
-    if local_src not in sys.path:
-        sys.path.insert(0, local_src)
-
-    from tibet_drop.bundle import pack_bundle  # type: ignore
+    try:
+        from tibet_drop.bundle import pack_bundle  # type: ignore
+    except ImportError:
+        from ._devpath import add_dev_src
+        add_dev_src()  # opt-in monorepo dev fallback; no hardcoded paths ship
+        from tibet_drop.bundle import pack_bundle  # type: ignore
     import os
 
     out_path = Path(bundle_out)
